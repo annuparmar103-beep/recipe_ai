@@ -40,107 +40,123 @@ export const generateRecipeFromAI = async (params) => {
     return getMockRecipe(ingredients, cuisine, mealType, difficulty, cookingTime, diet, spicyLevel);
   }
 
-  try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  let attempts = 0;
+  const maxAttempts = 3;
+  let retryDelay = 1500; // Start with a 1.5s delay
 
-    const prompt = `
-      You are an expert executive chef. Generate a delicious, complete, real recipe based on the following constraints:
-      - Available/Core Ingredients: ${ingredients.join(', ') || 'Any healthy ingredients'}
-      - Cuisine style: ${cuisine}
-      - Meal type: ${mealType}
-      - Difficulty: ${difficulty}
-      - Maximum cooking time (minutes): ${cookingTime}
-      - Dietary restrictions: ${diet}
-      - Spicy level: ${spicyLevel}
+  while (attempts < maxAttempts) {
+    try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-      Provide precise weights and measurements for all ingredients.
-      Ensure the nutrition parameters (calories, carbs, protein, fat) are realistic estimations.
-    `;
+      const prompt = `
+        You are an expert executive chef. Generate a delicious, complete, real recipe based on the following constraints:
+        - Available/Core Ingredients: ${ingredients.join(', ') || 'Any healthy ingredients'}
+        - Cuisine style: ${cuisine}
+        - Meal type: ${mealType}
+        - Difficulty: ${difficulty}
+        - Maximum cooking time (minutes): ${cookingTime}
+        - Dietary restrictions: ${diet}
+        - Spicy level: ${spicyLevel}
 
-    // Define JSON schema to force Gemini to return the exact structure
-    const responseSchema = {
-      type: 'object',
-      properties: {
-        title: { type: 'string', description: 'Clear, appealing name of the recipe' },
-        description: { type: 'string', description: 'Brief description of the dish (max 150 characters)' },
-        prepTime: { type: 'number', description: 'Preparation time in minutes' },
-        cookTime: { type: 'number', description: 'Cooking time in minutes' },
-        totalTime: { type: 'number', description: 'Sum of prep time and cook time in minutes' },
-        difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
-        cuisine: { type: 'string', description: 'Cuisine style (e.g. Italian, Mexican, American)' },
-        servingSize: { type: 'number', description: 'Number of servings' },
-        calories: { type: 'number', description: 'Total calories per serving' },
-        nutrition: {
-          type: 'object',
-          properties: {
-            protein: { type: 'number', description: 'Protein in grams' },
-            fat: { type: 'number', description: 'Fat in grams' },
-            carbs: { type: 'number', description: 'Carbohydrates in grams' },
-          },
-          required: ['protein', 'fat', 'carbs'],
-        },
-        ingredients: {
-          type: 'array',
-          items: {
+        Provide precise weights and measurements for all ingredients.
+        Ensure the nutrition parameters (calories, carbs, protein, fat) are realistic estimations.
+      `;
+
+      // Define JSON schema to force Gemini to return the exact structure
+      const responseSchema = {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Clear, appealing name of the recipe' },
+          description: { type: 'string', description: 'Brief description of the dish (max 150 characters)' },
+          prepTime: { type: 'number', description: 'Preparation time in minutes' },
+          cookTime: { type: 'number', description: 'Cooking time in minutes' },
+          totalTime: { type: 'number', description: 'Sum of prep time and cook time in minutes' },
+          difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
+          cuisine: { type: 'string', description: 'Cuisine style (e.g. Italian, Mexican, American)' },
+          servingSize: { type: 'number', description: 'Number of servings' },
+          calories: { type: 'number', description: 'Total calories per serving' },
+          nutrition: {
             type: 'object',
             properties: {
-              name: { type: 'string', description: 'Ingredient name (e.g. skinless chicken breast)' },
-              amount: { type: 'number', description: 'Numerical quantity' },
-              unit: { type: 'string', description: 'Measurement unit (e.g. g, oz, tbsp, piece)' },
+              protein: { type: 'number', description: 'Protein in grams' },
+              fat: { type: 'number', description: 'Fat in grams' },
+              carbs: { type: 'number', description: 'Carbohydrates in grams' },
             },
-            required: ['name', 'amount', 'unit'],
+            required: ['protein', 'fat', 'carbs'],
+          },
+          ingredients: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Ingredient name (e.g. skinless chicken breast)' },
+                amount: { type: 'number', description: 'Numerical quantity' },
+                unit: { type: 'string', description: 'Measurement unit (e.g. g, oz, tbsp, piece)' },
+              },
+              required: ['name', 'amount', 'unit'],
+            },
+          },
+          steps: {
+            type: 'array',
+            items: { type: 'string', description: 'Detailed sequential cooking instruction step' },
+          },
+          cookingTips: {
+            type: 'array',
+            items: { type: 'string', description: 'Useful tips for improving preparation or flavor' },
+          },
+          storageTips: {
+            type: 'array',
+            items: { type: 'string', description: 'Instructions on storage, freezing, or reheating' },
+          },
+          healthyAlternatives: {
+            type: 'array',
+            items: { type: 'string', description: 'Substitute ingredients for low-carb, low-fat, or allergen-free options' },
           },
         },
-        steps: {
-          type: 'array',
-          items: { type: 'string', description: 'Detailed sequential cooking instruction step' },
-        },
-        cookingTips: {
-          type: 'array',
-          items: { type: 'string', description: 'Useful tips for improving preparation or flavor' },
-        },
-        storageTips: {
-          type: 'array',
-          items: { type: 'string', description: 'Instructions on storage, freezing, or reheating' },
-        },
-        healthyAlternatives: {
-          type: 'array',
-          items: { type: 'string', description: 'Substitute ingredients for low-carb, low-fat, or allergen-free options' },
-        },
-      },
-      required: [
-        'title',
-        'description',
-        'prepTime',
-        'cookTime',
-        'totalTime',
-        'difficulty',
-        'cuisine',
-        'servingSize',
-        'calories',
-        'nutrition',
-        'ingredients',
-        'steps',
-        'cookingTips',
-        'storageTips',
-        'healthyAlternatives',
-      ],
-    };
+        required: [
+          'title',
+          'description',
+          'prepTime',
+          'cookTime',
+          'totalTime',
+          'difficulty',
+          'cuisine',
+          'servingSize',
+          'calories',
+          'nutrition',
+          'ingredients',
+          'steps',
+          'cookingTips',
+          'storageTips',
+          'healthyAlternatives',
+        ],
+      };
 
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: responseSchema,
-        temperature: 0.7,
-      },
-    });
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: responseSchema,
+          temperature: 0.7,
+        },
+      });
 
-    const responseText = result.response.text();
-    return JSON.parse(responseText);
-  } catch (error) {
-    console.error(`[Gemini Generation Error]: ${error.message}`);
-    throw new Error(`AI Recipe Generation failed: ${error.message}`);
+      const responseText = result.response.text();
+      return JSON.parse(responseText);
+    } catch (error) {
+      attempts++;
+      console.warn(`[Gemini Service Attempt ${attempts} Failed]: ${error.message}`);
+      
+      if (attempts >= maxAttempts) {
+        console.error(`[Gemini Generation Error]: Max attempts reached. ${error.message}`);
+        throw new Error(`AI Recipe Generation failed after ${maxAttempts} attempts: ${error.message}`);
+      }
+
+      // Wait before retrying (exponential backoff)
+      console.log(`[Gemini Service]: Retrying in ${retryDelay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      retryDelay *= 2;
+    }
   }
 };
 
