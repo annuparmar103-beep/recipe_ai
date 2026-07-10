@@ -7,7 +7,17 @@ import { ErrorResponse } from '../middlewares/errorMiddleware.js';
  * @access  Private
  */
 export const createMealPlan = async (req, res, next) => {
-  const { date, mealType, recipe, note } = req.body;
+  const { date, recipe, note, portions } = req.body;
+  let mealType = req.body.mealType;
+
+  // Map frontend "slot" to backend "mealType"
+  if (!mealType && req.body.slot) {
+    const slot = req.body.slot.toLowerCase();
+    if (slot === 'breakfast') mealType = 'Breakfast';
+    else if (slot === 'lunch') mealType = 'Lunch';
+    else if (slot === 'dinner') mealType = 'Dinner';
+    else if (slot === 'snack') mealType = 'Snack';
+  }
 
   try {
     // Parse date to start of the day in UTC/local to normalize times
@@ -36,6 +46,7 @@ export const createMealPlan = async (req, res, next) => {
       mealType,
       recipe,
       note,
+      portions: portions ? parseInt(portions, 10) : undefined,
     });
 
     await mealPlan.populate('recipe', 'title totalTime difficulty image');
@@ -96,7 +107,17 @@ export const getMealPlans = async (req, res, next) => {
  * @access  Private
  */
 export const updateMealPlan = async (req, res, next) => {
-  const { date, mealType, recipe, note } = req.body;
+  const { date, recipe, note, portions } = req.body;
+  let mealType = req.body.mealType;
+
+  // Map frontend "slot" to backend "mealType"
+  if (!mealType && req.body.slot) {
+    const slot = req.body.slot.toLowerCase();
+    if (slot === 'breakfast') mealType = 'Breakfast';
+    else if (slot === 'lunch') mealType = 'Lunch';
+    else if (slot === 'dinner') mealType = 'Dinner';
+    else if (slot === 'snack') mealType = 'Snack';
+  }
 
   try {
     let mealPlan = await MealPlan.findById(req.params.id);
@@ -140,6 +161,7 @@ export const updateMealPlan = async (req, res, next) => {
 
     if (recipe) mealPlan.recipe = recipe;
     if (note !== undefined) mealPlan.note = note;
+    if (portions !== undefined) mealPlan.portions = parseInt(portions, 10);
 
     await mealPlan.save();
     await mealPlan.populate('recipe', 'title totalTime difficulty image');
