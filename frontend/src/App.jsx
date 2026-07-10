@@ -28,6 +28,7 @@ import SavedRecipes from './pages/SavedRecipes';
 import MealPlanner from './pages/MealPlanner';
 import ShoppingList from './pages/ShoppingList';
 import AdminDashboard from './pages/AdminDashboard';
+import Legal from './pages/Legal';
 import NotFound from './pages/NotFound';
 
 function App() {
@@ -53,6 +54,7 @@ function App() {
           <Route path="/categories" element={<Categories />} />
           <Route path="/search" element={<SearchResults />} />
           <Route path="/recipes/:id" element={<RecipeDetails />} />
+          <Route path="/legal" element={<Legal />} />
 
           {/* Guest Only Auth Routes */}
           <Route path="/login" element={!isAuthenticated ? <Login /> : <Navigate to="/dashboard" replace />} />
