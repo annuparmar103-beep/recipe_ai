@@ -24,15 +24,29 @@ app.use(helmet());
 
 // Configure CORS
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:5173',
-  'https://recipeai-frontend.vercel.app' // Example production URL
+  'http://localhost:5173',
+  'https://recipeai-frontend.vercel.app'
 ];
+
+if (process.env.FRONTEND_URL) {
+  process.env.FRONTEND_URL.split(',').forEach((url) => {
+    const cleanUrl = url.trim().replace(/\/$/, '');
+    if (cleanUrl) {
+      allowedOrigins.push(cleanUrl);
+    }
+  });
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+      
+      const isAllowed = allowedOrigins.includes(origin);
+      const isVercelDeployment = origin.endsWith('.vercel.app');
+      
+      if (isAllowed || isVercelDeployment || process.env.NODE_ENV === 'development') {
         return callback(null, true);
       }
       return callback(new ErrorResponse('Not allowed by CORS', 403));
