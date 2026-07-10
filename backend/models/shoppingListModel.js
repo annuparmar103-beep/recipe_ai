@@ -34,6 +34,12 @@ const shoppingListSchema = new mongoose.Schema(
       default: 'My Shopping List',
       trim: true,
     },
+    startDate: {
+      type: Date,
+    },
+    endDate: {
+      type: Date,
+    },
     items: [shoppingItemSchema],
     recipes: [
       {
@@ -46,6 +52,15 @@ const shoppingListSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+shoppingListSchema.virtual('ingredients').get(function () {
+  return this.items;
+}).set(function (val) {
+  this.items = val;
+});
+
+shoppingListSchema.set('toJSON', { virtuals: true });
+shoppingListSchema.set('toObject', { virtuals: true });
 
 const ShoppingList = mongoose.model('ShoppingList', shoppingListSchema);
 export default ShoppingList;

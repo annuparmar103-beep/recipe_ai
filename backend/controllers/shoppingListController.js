@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import ShoppingList from '../models/shoppingListModel.js';
 import Recipe from '../models/recipeModel.js';
+import MealPlan from '../models/mealPlanModel.js';
 import { ErrorResponse } from '../middlewares/errorMiddleware.js';
 
 /**
@@ -9,51 +10,131 @@ import { ErrorResponse } from '../middlewares/errorMiddleware.js';
  * @access  Private
  */
 export const generateShoppingList = async (req, res, next) => {
-  const { recipeIds, name } = req.body;
-
-  if (!recipeIds || !Array.isArray(recipeIds) || recipeIds.length === 0) {
-    return next(new ErrorResponse('Please provide an array of recipe IDs', 400));
-  }
+  const { recipeIds, name, startDate, endDate } = req.body;
 
   try {
-    // Fetch recipes
-    const recipes = await Recipe.find({ _id: { $in: recipeIds } });
-
-    if (recipes.length === 0) {
-      return next(new ErrorResponse('No matching recipes found', 404));
-    }
-
-    // Ingredient Aggregation Dictionary
-    // Key format: "ingredient_name_unit"
+    let targetRecipeIds = [];
+    let listStartDate = startDate ? new Date(startDate) : null;
+    let listEndDate = endDate ? new Date(endDate) : null;
+    let listName = name;
+    let finalRecipes = [];
     const ingredientMap = new Map();
 
-    recipes.forEach((recipe) => {
-      recipe.ingredients.forEach((ing) => {
-        const cleanName = ing.name.trim().toLowerCase();
-        const cleanUnit = ing.unit.trim().toLowerCase();
-        const key = `${cleanName}_${cleanUnit}`;
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
 
-        if (ingredientMap.has(key)) {
-          const existing = ingredientMap.get(key);
-          existing.amount += ing.amount;
-        } else {
-          ingredientMap.set(key, {
-            name: ing.name.trim(), // Keep original casing
-            amount: ing.amount,
-            unit: ing.unit.trim(),
-            checked: false,
-          });
-        }
+      // Find all meal plans for the user in the date range
+      const mealPlans = await MealPlan.find({
+        user: req.user._id,
+        date: { $gte: start, $lte: end },
+      }).populate('recipe');
+
+      if (mealPlans.length === 0) {
+        return next(new ErrorResponse('No planned meals found in this date range.', 400));
+      }
+
+      // Aggregate ingredients from meal plan recipes, scaling by portions
+      mealPlans.forEach((plan) => {
+        const recipe = plan.recipe;
+        if (!recipe) return;
+
+        finalRecipes.push(recipe);
+        
+        const servings = recipe.servingSize || 1;
+        const portions = plan.portions || 2;
+        const multiplier = portions / servings;
+
+        recipe.ingredients.forEach((ing) => {
+          const cleanName = ing.name.trim().toLowerCase();
+          const cleanUnit = ing.unit.trim().toLowerCase();
+          const key = `${cleanName}_${cleanUnit}`;
+
+          const scaledAmount = ing.amount * multiplier;
+
+          if (ingredientMap.has(key)) {
+            const existing = ingredientMap.get(key);
+            existing.amount += scaledAmount;
+          } else {
+            ingredientMap.set(key, {
+              name: ing.name.trim(),
+              amount: scaledAmount,
+              unit: ing.unit.trim(),
+              checked: false,
+            });
+          }
+        });
       });
-    });
 
-    const aggregatedItems = Array.from(ingredientMap.values());
+      if (finalRecipes.length === 0) {
+        return next(new ErrorResponse('No recipes found in the planned meals.', 400));
+      }
+
+      if (!listName) {
+        const sD = start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        const eD = end.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        listName = `Shopping List - ${sD} to ${eD}`;
+      }
+    } else if (recipeIds && Array.isArray(recipeIds) && recipeIds.length > 0) {
+      // Direct recipe IDs provided
+      const recipes = await Recipe.find({ _id: { $in: recipeIds } });
+
+      if (recipes.length === 0) {
+        return next(new ErrorResponse('No matching recipes found', 404));
+      }
+
+      finalRecipes = recipes;
+
+      recipes.forEach((recipe) => {
+        recipe.ingredients.forEach((ing) => {
+          const cleanName = ing.name.trim().toLowerCase();
+          const cleanUnit = ing.unit.trim().toLowerCase();
+          const key = `${cleanName}_${cleanUnit}`;
+
+          if (ingredientMap.has(key)) {
+            const existing = ingredientMap.get(key);
+            existing.amount += ing.amount;
+          } else {
+            ingredientMap.set(key, {
+              name: ing.name.trim(),
+              amount: ing.amount,
+              unit: ing.unit.trim(),
+              checked: false,
+            });
+          }
+        });
+      });
+
+      if (!listName) {
+        listName = `Shopping List - ${new Date().toLocaleDateString()}`;
+      }
+    } else {
+      return next(
+        new ErrorResponse(
+          'Please provide either a startDate/endDate range or an array of recipe IDs',
+          400
+        )
+      );
+    }
+
+    // Round amounts to 2 decimal places for neatness
+    const aggregatedItems = Array.from(ingredientMap.values()).map(item => ({
+      ...item,
+      amount: Math.round(item.amount * 100) / 100
+    }));
+
+    // Deduplicate recipe IDs for the database document relation
+    const uniqueRecipeIds = Array.from(new Set(finalRecipes.map(r => r._id.toString())));
 
     const shoppingList = await ShoppingList.create({
       user: req.user._id,
-      name: name || `Shopping List - ${new Date().toLocaleDateString()}`,
+      name: listName,
+      startDate: listStartDate,
+      endDate: listEndDate,
       items: aggregatedItems,
-      recipes: recipes.map((r) => r._id),
+      recipes: uniqueRecipeIds,
     });
 
     res.status(201).json({
@@ -119,7 +200,8 @@ export const getShoppingListById = async (req, res, next) => {
  * @access  Private
  */
 export const updateShoppingList = async (req, res, next) => {
-  const { name, items } = req.body;
+  const { name, items, ingredients } = req.body;
+  const targetItems = items || ingredients;
 
   try {
     let shoppingList = await ShoppingList.findById(req.params.id);
@@ -133,7 +215,7 @@ export const updateShoppingList = async (req, res, next) => {
     }
 
     if (name) shoppingList.name = name;
-    if (items) shoppingList.items = items;
+    if (targetItems) shoppingList.items = targetItems;
 
     await shoppingList.save();
 
