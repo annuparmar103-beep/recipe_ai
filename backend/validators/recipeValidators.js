@@ -87,13 +87,13 @@ export const createRecipeValidator = [
     .isObject(),
   body('nutrition.protein')
     .optional()
-    .isInt({ min: 0 }),
+    .isFloat({ min: 0 }),
   body('nutrition.fat')
     .optional()
-    .isInt({ min: 0 }),
+    .isFloat({ min: 0 }),
   body('nutrition.carbs')
     .optional()
-    .isInt({ min: 0 }),
+    .isFloat({ min: 0 }),
   body('servingSize')
     .optional()
     .isInt({ min: 1 }),
